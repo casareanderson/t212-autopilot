@@ -123,6 +123,43 @@ python -m autopilot apply --picks picks.json --yes-live   # live: required
 refuses without `--yes-live`, because an environment variable set weeks ago is
 not consent.
 
+## Running it for someone else (remote MCP, e.g. Grok)
+
+A customer with no hardware can use this from the Grok web app. You host one
+server; they connect to a URL with a bearer token. Grok supports Remote MCP
+Tools natively, so nothing is installed on their side.
+
+```bash
+python -m autopilot new-token          # mint a token for that customer
+# add them to tenants.json (NEVER commit this file):
+# {"tok_...": {"name": "Ben", "t212_key": "...", "t212_secret": "...",
+#              "mode": "demo", "stake_gbp": 250, "safe_share": 0.9}}
+AUTOPILOT_TENANTS=tenants.json python -m autopilot serve --port 8790
+```
+
+Then in Grok: add a remote MCP server, URL `https://your-host/`, header
+`Authorization: Bearer tok_...`.
+
+**The customer's broker key never appears in a URL** — it is resolved
+server-side from the token, and tokens are compared in constant time.
+
+### ⚠️ There is no tool that buys on a live account
+
+| tool | what it does |
+|---|---|
+| `cash`, `positions` | read only |
+| `plan` | computes the 90/10 plan and returns it. Writes nothing. |
+| `apply_demo` | places orders **on the demo account**, and refuses if the tenant is configured live |
+
+Over a CLI, buying takes a human typing `apply --yes-live`. Over MCP, a
+`place_order` tool means the model can buy because a conversation drifted that
+way — on someone else's money, following a signal measured at −0.187R. That
+line is the whole reason this file is worth reading before you extend it.
+
+**If you run this for other people**, their money is not your money: publish a
+plain disclaimer, and check whether operating it needs regulatory cover where
+you are. That is not an engineering question and this README cannot answer it.
+
 ## The rules it enforces
 
 1. **The stake is a ceiling.** Everything held plus everything about to be

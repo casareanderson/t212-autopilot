@@ -36,6 +36,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="autopilot")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="prove the credentials reach the right account")
+    s = sub.add_parser("serve", help="run the remote MCP server (for Grok etc.)")
+    s.add_argument("--host", default="0.0.0.0")
+    s.add_argument("--port", type=int, default=8790)
+    sub.add_parser("new-token", help="mint a customer token for tenants.json")
     for name in ("plan", "apply"):
         p = sub.add_parser(name)
         p.add_argument("--picks", default="picks.json",
@@ -44,6 +48,17 @@ def main() -> None:
             p.add_argument("--yes-live", action="store_true",
                            help="required to place orders on the LIVE account")
     args = ap.parse_args()
+
+    if args.cmd == "new-token":
+        from .tenants import new_token
+        print(new_token())
+        return
+    if args.cmd == "serve":
+        # ⚠️ No Config() check here: the server has no credentials of its own.
+        # Every tool call resolves the CUSTOMER's key from their bearer token.
+        from .mcp import serve
+        serve(args.host, args.port)
+        return
 
     cfg = Config()
     problems = cfg.problems()
