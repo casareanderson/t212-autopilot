@@ -173,6 +173,9 @@ class Handler(BaseHTTPRequestHandler):
             text = _call(tenant, params.get("name") or "",
                          params.get("arguments") or {})
             err = False
+        except picks_mod.UnsafeSource as e:
+            # Said plainly: this one is the caller's fault and they should see why.
+            text, err = f"refused: {e}", True
         except (T212Error, OSError, ValueError) as e:
             text, err = f"{type(e).__name__}: {e}", True
         self._send({"jsonrpc": "2.0", "id": rid,

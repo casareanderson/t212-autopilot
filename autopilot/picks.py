@@ -18,9 +18,58 @@ Feed format (a file path or an https URL), one object per candidate:
 """
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+
+
+class UnsafeSource(ValueError):
+    """The feed location is not one this server may fetch."""
+
+
+def _check_url(url: str) -> str:
+    """Refuse anything that is not a public https URL.
+
+    ⚠️⚠️ FOUND BY PEN-TESTING THIS FILE, NOT BY READING IT. Two holes, both
+    reachable by any authenticated customer over MCP:
+
+      1. ARBITRARY LOCAL FILE READ. `load()` treated anything without an http
+         prefix as a PATH and called open() on it, so `picks_url` of
+         "/etc/passwd" - or "tenants.json", which holds every customer's broker
+         secret - was read, parsed and reported back through the error message.
+      2. SSRF, WITH A WORKING PORT SCANNER. `http://192.168.x.x:8080/` returned
+         JSONDecodeError (reachable, not JSON) while an unreachable host
+         returned URLError. That difference maps an internal network from
+         outside it, and a host that DOES return JSON was parsed and used.
+
+    So: https only, and the resolved address must be public. Resolution happens
+    HERE and the result is checked, because "the hostname looks fine" is not the
+    same statement as "it points somewhere public".
+    """
+    u = urllib.parse.urlparse(url or "")
+    if u.scheme != "https":
+        raise UnsafeSource(
+            f"picks feed must be an https URL (got {u.scheme or 'no scheme'!r}). "
+            f"Local paths are only allowed on the command line.")
+    if not u.hostname:
+        raise UnsafeSource("picks feed URL has no host")
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or 443, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise UnsafeSource(f"cannot resolve {u.hostname!r}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        # ⚠️ EVERY resolved address is checked, not the first. A hostname with
+        # one public and one loopback record would otherwise pass.
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise UnsafeSource(
+                f"{u.hostname} resolves to {ip}, which is not a public address. "
+                f"This server will not fetch internal hosts.")
+    return url
 
 
 @dataclass
@@ -41,9 +90,16 @@ class Pick:
         return (self.entry - self.stop) / self.entry
 
 
-def load(source: str) -> list[Pick]:
-    if source.startswith(("http://", "https://")):
-        with urllib.request.urlopen(source, timeout=30) as r:
+def load(source: str, *, allow_local: bool = False) -> list[Pick]:
+    """Read the feed.
+
+    ⚠️ `allow_local` DEFAULTS TO FALSE, and only the CLI passes True. A local
+    path is a reasonable thing to type at a terminal on your own machine and an
+    arbitrary-file-read primitive when it arrives over the network.
+    """
+    looks_remote = "://" in source or source.startswith("//")
+    if looks_remote or not allow_local:
+        with urllib.request.urlopen(_check_url(source), timeout=30) as r:
             raw = json.load(r)
     else:
         with open(source, encoding="utf-8") as fh:

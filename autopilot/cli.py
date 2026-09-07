@@ -84,7 +84,7 @@ def main() -> None:
                 _log("  ok - credentials reach this account")
                 return
 
-            feed = picks_mod.load(args.picks)
+            feed = picks_mod.load(args.picks, allow_local=True)
             _log(f"  {len(feed)} candidate(s) in the feed")
             qualified, notes = policy.qualify(feed, cfg)
             for n in notes:
