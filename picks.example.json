@@ -1,0 +1,8 @@
+[
+  {"ticker": "AAON_US_EQ", "symbol": "AAON", "entry": 85.80, "stop": 78.19,
+   "target": 94.38, "hit_rate": 0.62, "note": "blue-purple 4H"},
+  {"ticker": "ZTS_US_EQ", "symbol": "ZTS", "entry": 72.66, "stop": 66.84,
+   "target": 79.93, "hit_rate": 0.61, "note": "blue-purple 4H"},
+  {"ticker": "BBD_US_EQ", "symbol": "BBD", "entry": 3.46, "stop": 3.29,
+   "target": 3.63, "hit_rate": 0.19, "note": "scan slot 20 - below the floor, will be skipped"}
+]
