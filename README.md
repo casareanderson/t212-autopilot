@@ -1,177 +1,162 @@
 # t212-autopilot
 
-Connects a **Trading 212** account to a picks feed you publish, and buys on a
-fixed **90 / 10** split: 90% accumulation into broad ETFs, 10% following the
-signal. Optionally lets **Grok** rank the candidates — inside an envelope it
-cannot leave.
+Connects a Trading 212 account to a picks feed you publish and buys on a fixed 90/10 split: 90% into broad ETFs, 10% following your signal, with an optional Grok ranking that cannot add, size or stop anything. Demo account by default.
 
-Defaults to the **demo** account. Read the next section before changing that.
+![Output of autopilot plan against the example feed](docs/plan-offline.png)
 
----
+*`python -m autopilot plan` run against `picks.example.json`, with the broker client replaced by a stub (an empty demo account with £100 free) so nothing touches Trading 212. The 0.19 hit-rate pick is filtered out. The three ETFs are skipped because the account holds none of them and there is no price for them. That is a real limit, covered under [Status](#status-limits-and-real-results).*
 
-## Read this before you point it at real money
+![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue) ![Python](https://img.shields.io/badge/python-3-blue) ![Default: demo account](https://img.shields.io/badge/default-demo%20account-orange)
 
-This tool follows a signal. Whether it makes money depends entirely on whether
-that signal is any good, so here is what measurement of the reference
-implementation actually showed:
+**This is not financial advice, and it is not a proven strategy.** It is shared as a reference for wiring a signal to a broker safely. Read [Status, limits and real results](#status-limits-and-real-results) before you point it at real money.
 
-| signal | sample | result |
-|---|---|---|
-| daily scan picks | **213 graded picks** | **−0.187R average**, 43% win rate |
-| 4H blue/purple pattern | **10 resolved setups** | **+1.93% average**, 5 winners |
+## What it does
 
-And two details that matter more than the headlines:
+- **Plans before it buys.** `plan` prints every order and why, and sends nothing. `apply` prints the same plan first. On a live account it refuses unless you also pass `--yes-live`.
+- **Splits the stake 90/10.** The safe sleeve is split equally across your ETF list. The risk sleeve is split across up to 4 qualified picks (`autopilot/policy.py`).
+- **Treats the stake as a ceiling.** What it already holds plus what it is about to buy must stay under `AUTOPILOT_STAKE_GBP`, whatever else is in the account. A plan that would breach it is refused.
+- **Filters picks mechanically.** A pick with no usable stop is skipped. A pick below `AUTOPILOT_MIN_HIT_RATE` (default 0.60) is skipped.
+- **Lets Grok reorder, nothing more.** The ranking it returns is intersected with the approved list, so a made-up ticker is dropped (`autopilot/grok.py`). With no key, picks keep the feed's order.
+- **Never retries an order.** Reads back off and retry. A failed `POST` is reported and the run moves on, because Trading 212 has no idempotency key (`autopilot/t212.py`).
+- **Serves a remote MCP endpoint** with `cash`, `positions`, `plan` and `apply_demo` tools. There is no tool that buys on a live account (`autopilot/mcp.py`).
 
-- The pattern strategy's entire positive average comes from **one trade**.
-  Remove it and the same ten setups average **−1.17%**.
-- Its first measurement said +9.5% with 5 wins from 6 — because setups that
-  expired without completing were **never assigned an exit price**, so the
-  losing half of the strategy was invisible. Priced properly, all four expiries
-  were losses of −6.1% to −12.6%.
+## Quick start
 
-A **stop-loss does not fix it.** Replayed against the real 4-hour bars:
-
-| stop | average | stopped out |
-|---|---|---|
-| none | +1.93% | 0/10 |
-| −5% | −1.29% | **7/10** |
-| −7% | +0.99% | 6/10 |
-| −10% | +1.01% | 5/10 |
-
-Every stop level is worse than none, because the entry is *deliberately* a
-failed bounce — these names dip hard before they turn. Tolerating drawdown is
-the strategy, which means positions must be sized for a −10% adverse move.
-
-**That is why the risk sleeve is 10% and the default account is demo.** Neither
-is caution for its own sake; both are what the numbers support. Use the demo
-account until your own feed shows a positive expectancy on a sample you would
-defend.
-
-Nothing here is financial advice, and no part of it predicts anything.
-
----
-
-## Connecting Trading 212
-
-1. In the T212 app or web dashboard: **Settings → API (Beta) → Generate API key**.
-2. Generate the key **on the account you intend to trade**. A live key returns
-   `401` against the demo host and a demo key returns `401` against the live
-   host — that 401 is almost always the wrong environment, not a bad key.
-3. Give the key **read** scope plus **order placement** if you intend to use
-   `apply`. `check` and `plan` need only read.
-4. Put both halves in your environment. Auth is **HTTP Basic**: the API key is
-   the username, the secret is the password.
+You need Python 3 (checked here with 3.12) and a Trading 212 API key. Start with the **demo** account.
 
 ```bash
-cp .env.example .env      # then fill it in
+git clone https://github.com/casareanderson/t212-autopilot.git
+cd t212-autopilot
+pip install -r requirements.txt     # httpx is the only dependency
+cp .env.example .env                # fill in T212_KEY and T212_SECRET
 set -a; source .env; set +a
-pip install -r requirements.txt
 python -m autopilot check
 ```
 
-`check` proves the credentials reach the account you think they do — it prints
-the account id, currency and free cash, and warns if the id does not match the
-key. **A T212 key's first 8 characters are the account number**, which is what
-makes that check possible.
+Success looks like this: `check` prints the account id, currency, free and invested cash, then `ok - credentials reach this account`. With no key set, it exits 1 and tells you what is missing:
 
-## Connecting Grok
+```
+  ✗ T212_KEY and T212_SECRET must both be set (auth is HTTP Basic - the key is the username, the secret is the password)
+```
 
-Optional. Get a key from the xAI console and set `GROK_API_KEY`. With no key
-the picks keep the order your feed gave them, and every safety property is
-identical.
+### Getting a Trading 212 key
 
-**What Grok is allowed to do:** reorder a list of candidates that have already
-passed the mechanical filter.
+1. In the Trading 212 app or web dashboard: **Settings > API (Beta) > Generate API key**.
+2. Generate it **on the account you mean to trade**. A live key returns `401` on the demo host and a demo key returns `401` on the live host. That 401 almost always means the wrong environment, not a bad key.
+3. Give it read scope, plus order placement if you will use `apply`. `check` and `plan` only need read.
+4. Auth is HTTP Basic: the key is the username, the secret is the password. A key's first 8 characters are the account number, which is how `check` warns you about a mismatch.
 
-**What it cannot do:** add a name, remove one, change a size, or move a stop.
-The returned ranking is intersected back against the approved list, so an
-invented ticker is impossible rather than merely unlikely. Sizing and stops are
-arithmetic and live in `policy.py`.
+## Usage
 
-This is not distrust of one vendor. The system this was extracted from lost
-**£424** running LLM-driven trading flows, and the deterministic rebuild that
-replaced them is the only reason there is anything worth automating. A model
-that reorders four pre-screened names cannot repeat that. A model that chooses
-what to buy can.
+```bash
+python -m autopilot check                                 # credentials and account
+python -m autopilot plan  --picks picks.json              # what it would do. Never writes.
+python -m autopilot apply --picks picks.json              # demo: places orders
+python -m autopilot apply --picks picks.json --yes-live   # live: the flag is required
+```
 
-## The picks feed
+`--picks` takes a local path or an https URL.
 
-A JSON file or an https URL. Publish it from whatever produces your signals —
-this repo deliberately contains **no scanner**, so the thing that decides what
-to buy and the thing that buys it can be replaced independently.
+### The picks feed
+
+A JSON list, one object per candidate. This repo deliberately has **no scanner**: what decides what to buy and what buys it can be replaced separately.
 
 ```json
 [{"ticker": "AAON_US_EQ", "symbol": "AAON", "entry": 85.80, "stop": 78.19,
   "target": 94.38, "hit_rate": 0.62, "note": "blue-purple 4H"}]
 ```
 
-`ticker` is the **broker's** ticker, not the exchange symbol. `stop` is
-required — a pick without a usable stop is skipped. `hit_rate` is your
-strategy's own measured hit rate for that kind of setup; anything below
-`AUTOPILOT_MIN_HIT_RATE` is not bought.
+- `ticker` is the **broker's** ticker, not the exchange symbol.
+- `stop` is required. A pick without a stop below its entry is skipped.
+- `hit_rate` is your own measured hit rate for that kind of setup.
 
-## Using it
-
-```bash
-python -m autopilot check                      # credentials and account
-python -m autopilot plan  --picks picks.json   # what it WOULD do. Never writes.
-python -m autopilot apply --picks picks.json   # demo: places orders
-python -m autopilot apply --picks picks.json --yes-live   # live: required
-```
-
-`apply` always prints the plan first. On the live account it additionally
-refuses without `--yes-live`, because an environment variable set weeks ago is
-not consent.
-
-## Running it for someone else (remote MCP, e.g. Grok)
-
-A customer with no hardware can use this from the Grok web app. You host one
-server; they connect to a URL with a bearer token. Grok supports Remote MCP
-Tools natively, so nothing is installed on their side.
+### Running it for someone else (remote MCP)
 
 ```bash
-python -m autopilot new-token          # mint a token for that customer
-# add them to tenants.json (NEVER commit this file):
-# {"tok_...": {"name": "Ben", "t212_key": "...", "t212_secret": "...",
+python -m autopilot new-token          # mint a token for one customer
+# add them to tenants.json (never commit this file):
+# {"tok_...": {"name": "Alex", "t212_key": "...", "t212_secret": "...",
 #              "mode": "demo", "stake_gbp": 250, "safe_share": 0.9}}
 AUTOPILOT_TENANTS=tenants.json python -m autopilot serve --port 8790
 ```
 
-Then in Grok: add a remote MCP server, URL `https://your-host/`, header
-`Authorization: Bearer tok_...`.
+In an MCP client such as Grok, add a remote server with your URL and the header `Authorization: Bearer tok_...`. The customer's broker key never appears in a URL. It is looked up server-side from the token, and tokens are compared in constant time.
 
-**The customer's broker key never appears in a URL** — it is resolved
-server-side from the token, and tokens are compared in constant time.
-
-### ⚠️ There is no tool that buys on a live account
-
-| tool | what it does |
+| Tool | What it does |
 |---|---|
-| `cash`, `positions` | read only |
-| `plan` | computes the 90/10 plan and returns it. Writes nothing. |
-| `apply_demo` | places orders **on the demo account**, and refuses if the tenant is configured live |
+| `cash`, `positions` | Read only |
+| `plan` | Computes the 90/10 plan from an https feed URL and returns it. Writes nothing. |
+| `apply_demo` | Places orders **on the demo account**. Refuses if the tenant is set to live. |
 
-Over a CLI, buying takes a human typing `apply --yes-live`. Over MCP, a
-`place_order` tool means the model can buy because a conversation drifted that
-way — on someone else's money, following a signal measured at −0.187R. That
-line is the whole reason this file is worth reading before you extend it.
+Over the CLI, buying live takes a person typing `--yes-live`. Over MCP there is no live buy at all, so a conversation that drifts cannot spend real money. If you run this for other people, publish a plain disclaimer and check whether doing so needs regulatory cover where you are. This README cannot answer that.
 
-**If you run this for other people**, their money is not your money: publish a
-plain disclaimer, and check whether operating it needs regulatory cover where
-you are. That is not an engineering question and this README cannot answer it.
+## Configuration
 
-## The rules it enforces
+Set in the environment (see `.env.example`):
 
-1. **The stake is a ceiling.** Everything held plus everything about to be
-   bought stays under `AUTOPILOT_STAKE_GBP`, whatever else is in the account.
-   Money paid in tomorrow does not become this tool's to spend.
-2. **No exit, no entry.** A pick without a usable stop is skipped.
-3. **Nothing is bought that is not already qualified.** The model only reorders.
-4. **Writes are never retried.** T212 has no idempotency key, so a retried
-   `POST` is a second order, not the same one.
-5. **An empty risk sleeve is a valid outcome.** If nothing qualifies, that
-   tenth stays in cash and the run reports it rather than lowering the bar.
+| Variable | Default | What it does |
+|---|---|---|
+| `T212_MODE` | `demo` | `demo` or `live` |
+| `T212_KEY`, `T212_SECRET` | none | Trading 212 API key and secret (HTTP Basic) |
+| `AUTOPILOT_STAKE_GBP` | `100` | Ceiling on everything this tool holds and buys, in GBP |
+| `AUTOPILOT_SAFE_SHARE` | `0.90` | Share of the budget for the ETF sleeve |
+| `AUTOPILOT_SAFE_TICKERS` | `VUAG_EQ,VWRP_EQ,ISF_EQ` | ETFs for the safe sleeve, split equally |
+| `AUTOPILOT_MAX_RISK_POSITIONS` | `4` | Most picks bought in one run |
+| `AUTOPILOT_MIN_HIT_RATE` | `0.60` | Picks below this hit rate are skipped |
+| `GROK_API_KEY` | none | Optional. Turns on Grok ranking. |
+| `GROK_MODEL` | `grok-4-latest` | Model used for ranking |
+| `AUTOPILOT_TENANTS` | none | Path to `tenants.json` for `serve` |
 
-## Licence
+## How it works
 
-MIT.
+```mermaid
+flowchart LR
+    F["Picks feed<br>(file or https URL)"] --> Q["policy.qualify<br>stop + hit-rate filter"]
+    Q --> G["grok.rank<br>reorder only (optional)"]
+    G --> B["policy.build<br>90/10 split, stake ceiling"]
+    T["Trading 212 API<br>cash + portfolio"] --> B
+    B --> P["plan printed"]
+    P -->|apply| O["market orders<br>never retried"]
+```
+
+```
+autopilot/
+├── cli.py       # check / plan / apply / serve / new-token
+├── config.py    # every setting, read from the environment, demo by default
+├── picks.py     # loads the feed; only public https URLs over the network
+├── policy.py    # qualify + build: the 90/10 split and the stake ceiling
+├── grok.py      # optional ranking, intersected back with the approved list
+├── t212.py      # Trading 212 client: reads retry, orders do not
+├── mcp.py       # remote MCP server (JSON-RPC over HTTP, standard library only)
+└── tenants.py   # bearer token -> customer config, constant-time compare
+picks.example.json
+.env.example
+```
+
+## Status, limits and real results
+
+**Nothing in this repo measures returns.** There is no backtest and no trade log here. The numbers below come from the separate, private system this was extracted from, measured on 7 September 2026. They are quoted because they explain the defaults, not as a forecast.
+
+| Signal | Sample | Result |
+|---|---|---|
+| Daily scan picks | 213 graded picks | −0.187R average, 43% win rate |
+| 4H "blue/purple" pattern | 10 resolved setups | +1.93% average, 5 winners |
+
+- The pattern's positive average comes from **one trade**. Without it, the same ten setups average **−1.17%**.
+- A first measurement said +9.5% because setups that expired were never given an exit price. Priced properly, all four expiries were losses of −6.1% to −12.6%.
+- A stop-loss did not help. Replayed against the real 4-hour bars: no stop +1.93%; −5% stop −1.29% (7 of 10 stopped out); −7% +0.99%; −10% +1.01%.
+- Earlier LLM-driven trading flows in the same system showed a realised loss of **£424** on the Trading 212 demo account (measured 14 July 2026) and were removed. That is why the model here only reorders.
+
+So the 10% risk sleeve and the demo default are what those numbers support. Stay on demo until your own feed shows a positive result on a sample you would defend.
+
+Known limits, from the code:
+
+- **The ETF sleeve needs a price it does not have.** Trading 212's public API has no quote endpoint, so `cli.py` prices ETFs only from positions you already hold. On an account that holds none of them, the 90% sleeve buys nothing and only the risk sleeve is bought, as in the screenshot above. Seed the ETFs by hand first, or add a price source.
+- **Risk-sleeve prices come from the feed.** A pick you do not hold is sized at the feed's `entry`, which may be stale.
+- **Market orders only.** No limit orders, and no selling. Exits and stops are not placed on the broker; `stop` is used only to qualify a pick.
+- **`serve` speaks plain HTTP.** Put it behind a TLS reverse proxy before exposing it.
+- **No tests** ship in this repo.
+
+## Licence and credits
+
+MIT, see [LICENSE](LICENSE). Uses [httpx](https://www.python-httpx.org/) (BSD-3-Clause). Trading 212 and Grok are third-party services with their own terms; you need your own accounts.
