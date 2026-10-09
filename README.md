@@ -160,3 +160,5 @@ Known limits, from the code:
 ## Licence and credits
 
 MIT, see [LICENSE](LICENSE). Uses [httpx](https://www.python-httpx.org/) (BSD-3-Clause). Trading 212 and Grok are third-party services with their own terms; you need your own accounts.
+
+If this is useful to you, [buy me a coffee](https://buymeacoffee.com/iamc_tech) ☕
