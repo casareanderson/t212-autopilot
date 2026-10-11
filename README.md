@@ -22,6 +22,8 @@ Connects a Trading 212 account to a picks feed you publish and buys on a fixed 9
 
 ## Quick start
 
+Full step-by-step guide, tested on a fresh machine every week: [docs/SETUP.md](docs/SETUP.md).
+
 You need Python 3 (checked here with 3.12) and a Trading 212 API key. Start with the **demo** account.
 
 ```bash

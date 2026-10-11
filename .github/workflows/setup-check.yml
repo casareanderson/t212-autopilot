@@ -1,0 +1,38 @@
+name: setup-check
+
+# Proves docs/SETUP.md still works from a fresh clone, against a FAKE Trading 212 API.
+# It never touches a real account, demo or live, and needs no secrets.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "5 7 * * 1"
+  push:
+    paths:
+      - "docs/SETUP.md"
+      - "scripts/**"
+      - "autopilot/**"
+      - "requirements.txt"
+      - "picks.example.json"
+      - ".github/workflows/setup-check.yml"
+  pull_request:
+    paths:
+      - "docs/SETUP.md"
+      - "scripts/**"
+      - "autopilot/**"
+      - "requirements.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: bash scripts/setup-check.sh
