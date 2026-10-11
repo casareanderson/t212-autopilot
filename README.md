@@ -6,7 +6,7 @@ Connects a Trading 212 account to a picks feed you publish and buys on a fixed 9
 
 *`python -m autopilot plan` run against `picks.example.json`, with the broker client replaced by a stub (an empty demo account with £100 free) so nothing touches Trading 212. The 0.19 hit-rate pick is filtered out. The three ETFs are skipped because the account holds none of them and there is no price for them. That is a real limit, covered under [Status](#status-limits-and-real-results).*
 
-![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue) ![Python](https://img.shields.io/badge/python-3-blue) ![Default: demo account](https://img.shields.io/badge/default-demo%20account-orange)
+![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue) ![Python](https://img.shields.io/badge/python-3-blue) ![Default: demo account](https://img.shields.io/badge/default-demo%20account-orange) [![Buy Me a Coffee](https://raw.githubusercontent.com/casareanderson/.github/main/badges/bmc-yellow.svg)](https://buymeacoffee.com/iamc_tech)
 
 **This is not financial advice, and it is not a proven strategy.** It is shared as a reference for wiring a signal to a broker safely. Read [Status, limits and real results](#status-limits-and-real-results) before you point it at real money.
 
